@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+# ##################################################
+scriptname="myproject"
+# 
+synopsis="create projects/gits, upload/download to git"
+# 
+# ##################################################
+# Main
+
+function main_script() {
+  # main_scripts docstring
+
+  clear
+  chmod -R 1777 /mymacy/Projects/
+  chown -R mymacy /mymacy/Projects/
+  setxkbmap de
+  service smbd restart
+
+  if [[ "${noargs}" == "true" ]] ; then
+    echo "No arguments given"
+    echo "What do you want to do?
+    i: install tools
+    c: create a new project
+    d: develop current project
+    p: deploy current project
+    "
+    read -n1 answer
+    case "$answer" in
+      "i") install_tools ;;
+      "c") create_project ;;
+      "d") develop_project ;;
+      "p") deploy_project ;;
+      *) echo "invalid option: '$1'. Exiting" 1>&2; exit 1 ;;
+    esac
+  else
+    case "true" in
+      "$install") install_tools ;;
+      "$create") create_project ;;
+      "$develop") develop_project ;;
+      "$deploy") deploy_project ;;      
+    esac
+  fi
+
+  echo "done without errors! hf"
+}
+
+function install_tools() {
+  apt -y --force-yes update && apt -y --force-yes upgrade
+  apt -y --force-yes install python3-venv
+  apt -y --force-yes install nodejs
+  npm i -g npm@latest
+  npm i -g @vue/cli @vue/cli-service-global
+  npm i -g @quasar/cli
+  apt -y --force-yes autoremove
+}
+
+function create_project() {
+  clear
+  echo "Enter Project Name"
+  read name
+  echo "Enter Description (OPTIONAL)"
+  read descri
+
+  # files
+  echo "Creating Project Files"
+  mkdir -p /mymacy/Projects/$name/{frontend,backend,design}
+  cp -r ./frontend/vue_template/* /mymacy/Projects/$name/frontend
+  cp -r ./design/* /mymacy/Projects/$name/design
+  cp -r ./backend/flask_template/* /mymacy/Projects/$name/backend
+  cp ./README.MD /mymacy/Projects/$name/
+  cp ./.gitignore /mymacy/Projects/$name/
+  cp ./req.txt /mymacy/Projects/$name/
+  cp ./myproject /mymacy/Projects/$name/
+  cd /mymacy/Projects/$name
+  sed -i "s/APPNAME/${name}/g" ./backend/main.py
+  sed -i "s/APPNAME/${name}/g" ./frontend/package.json
+  sed -i "s/DESCRI/${descri}/g" ./frontend/package.json
+
+  # create Github Project
+  echo "Creating Github Project"
+  git config --global user.email "marcelalbrink@googlemail.com"
+  git config --global user.name "mymacy"
+  curl -u 'mymacy' https://api.github.com/user/repos -d '{"name":"'$name'"}'
+  git init 
+  git remote add origin https://github.com/mymacy/$name.git
+  git add .
+  git commit -m "first commit"
+  git push -u origin master
+
+  # Install modules
+  cd ./frontend
+  npm install
+  #npm audit fix
+  cd ..
+
+  # Create Project VENV
+  echo "Creating Project VENV"
+  python3 -m venv /mymacy/venvs/$name/
+  source /mymacy/venvs/$name/bin/activate
+  pip install -r req.txt
+
+  # Go to dir
+  xdotool type "cd /mymacy/Projects/$name/";xdotool key KP_Enter
+}
+
+function develop_project() {
+  # Backend
+  xdotool keydown alt key e; sleep 0.5; xdotool keyup alt
+  xdotool type 'cd backend/';xdotool key KP_Enter
+  xdotool type 'source /mymacy/venvs/'$(pwd | cut -d"/" -f4)'/bin/activate';xdotool key KP_Enter
+  xdotool type 'python server.py';xdotool key KP_Enter
+
+  # Frontend
+  cd frontend
+  quasar dev
+  cd ..
+  #xdotool type 'cd frontend/';xdotool key KP_Enter
+  # xdotool type 'quasar dev';xdotool key KP_Enter
+}
+
+function deploy_project() {
+  clear
+  echo "
+  1: "
+}
+
+# ##################################################
+# Arg Parser
+
+install=false
+create=false
+develop=false
+deploy=false
+
+logging=false
+args=()
+
+usage() {
+  echo -n "`basename "$0"` [OPTION]... [FILE]...
+  $synopsis
+
+  -i, --install     install tools (run atleast once!)
+  -c, --create      create a new project (vue/flask)
+  -d, --develop     develop current project
+  -p, --deploy      deploy current project
+  -l, --log         Log stdout and stderr (pipes stay active)  
+  -h, --help        Display this help and exit
+      --version     Output version information and exit
+  "
+}
+
+if [[ "$#" -eq 0 ]] ; then
+  noargs=true
+else
+  noargs=false
+fi
+# [[ $# -eq 0 ]] && set -- "--help" # Uncomment to force arguments when invoking the script
+while [[ $1 = -?* ]]; do
+  case $1 in
+    -i|--install) install=true ;;
+    -c|--create) create=true ;;
+    -d|--develop) develop=true ;;
+    -p|--deploy) deploy=true ;;
+    -l|--log) logging=true ;;
+    -h|--help) usage >&2; exit ;;
+    --version) echo "$(basename $0) ${version}"; exit ;;
+    --endopts) shift; break ;;
+    *) echo "invalid option: '$1'. Exiting" 1>&2; exit 1 ;;
+  esac
+  shift
+done
+args+=("$@") # Store the remaining part as arguments.
+
+# ##################################################
+# Exit Management
+
+function die() { echo "$*" 1>&2 ; exit 1; } # remember ; on 1-liners
+function trapCleanup() {
+  echo ""
+  if [[ -d "./tmp_dir" ]]; then 
+    rm -r "./tmp_dir"
+  fi
+  die "ERROR: Exiting trapped."
+}
+function safeExit() {
+  if [[ -d "$./tmp_dir" ]]; then
+    rm -r "./tmp_dir"
+  fi
+  trap - INT TERM EXIT
+  exit
+}
+
+# ##################################################
+# Log & Startup
+set -o pipefail # Always return highest exitcode
+set -o errexit  # Exit on any error
+# set -o xtrace   # aka set -x show executed cmd
+# export DEBIAN_FRONTEND=noninteractive
+
+if [[ "${logging}" == "true" ]] ; then
+  echo "logging output and error";
+  main_script > >(tee -a "$scriptname".log) 2> >(tee -a "$scriptname".error | tee -a "$scriptname".log >&2)
+  # echo "logging error only";
+  # main_script 2> >(tee -a "$scriptname".error | tee -a "$scriptname".log >&2)
+else
+  main_script
+fi
+
+echo "Exitcode: $?" # echoes exit code of main script 
+trap trapCleanup EXIT INT TERM # cleanup
+safeExit

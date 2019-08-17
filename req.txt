@@ -1,0 +1,10 @@
+# GUI
+flask
+wheel
+pywebview[qt]
+pyinstaller
+
+# Other
+requests
+ftputil
+psutil
